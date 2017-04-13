@@ -1,28 +1,48 @@
-# Require the AWS provider plugin
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# Require the AWS provider plugin and YAML module
 require 'vagrant-aws'
+require 'yaml'
+
+# Read YAML file with instance information
+instances = YAML.load_file(File.join(File.dirname(__FILE__), 'instances.yml'))
+
+# Specify Vagrant version and Vagrant API version
+Vagrant.require_version '>= 1.6.0'
+VAGRANTFILE_API_VERSION = '2'
+ENV['VAGRANT_DEFAULT_PROVIDER'] = 'aws'
 
 # Create and configure the AWS instance(s)
-Vagrant.configure('2') do |config|
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   # Use dummy AWS box
   config.vm.box = 'aws-dummy'
 
-  # Specify AWS provider configuration
-  config.vm.provider 'aws' do |aws, override|
-    # Read AWS authentication information from environment variables
-    aws.access_key_id = ENV['AWS_ACCESS_KEY_ID']
-    aws.secret_access_key = ENV['AWS_SECRET_ACCESS_KEY']
+  # Configure default AWS provider settings
+  config.vm.provider 'aws' do |aws|
 
-    # Specify SSH keypair to use
-    aws.keypair_name = 'ssh-keypair-name'
+    # Specify default AWS key pair
+    aws.keypair_name = 'Selenium'
+  end # config.vm.provider 'aws'
 
-    # Specify region, AMI ID, and security group(s)
-    aws.region = 'us-west-2'
-    aws.ami = 'ami-20be7540'
-    aws.security_groups = ['default']
+  # Loop through YAML file and set per-instance information
+  instances.each do |instance|
+    config.vm.define instance['name'] do |srv|
 
-    # Specify username and private key path
-    override.ssh.username = 'ubuntu'
-    override.ssh.private_key_path = '~/.ssh/ssh-keypair-file'
-  end
-end
+      # Disable default shared folder
+      srv.vm.synced_folder '.', '/vagrant', disabled: true
+
+      # Set per-instance provider configuration/overrides
+      srv.vm.provider 'aws' do |aws, override|
+        override.ssh.private_key_path = instance['keyfile']
+        override.ssh.username = instance['user']
+        aws.instance_type = instance['type']
+        aws.ami = instance['ami']
+	aws.region = instance['region']
+        aws.security_groups = instance['security-groups']
+	aws.tags = {'Name': instance['name']}
+      end # srv.vm.provider 'aws'
+    end # config.vm.define
+  end # instances.each
+end # Vagrant.configure
