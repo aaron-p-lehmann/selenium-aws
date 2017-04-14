@@ -4,12 +4,12 @@
   ami: "ami-41d48e24"
   user: "ubuntu"
   region: "us-east-2"
-  keyfile: "C:/users/alehmann/Desktop/Selenium.pem"
+  keyfile: <path to keyfile>
   security-groups: ['selenium hub SG']
 - name: "selenium node AWS"
   type: "t2.micro"
   ami: "ami-41d48e24"
   user: "ubuntu"
   region: "us-east-2"
-  keyfile: "C:/users/alehmann/Desktop/Selenium.pem"
+  keyfile: <path to keyfile>
   security-groups: ['selenium node SG']

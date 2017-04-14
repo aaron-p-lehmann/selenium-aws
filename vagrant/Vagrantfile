@@ -23,7 +23,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.provider 'aws' do |aws|
 
     # Specify default AWS key pair
-    aws.keypair_name = 'Selenium'
+    aws.keypair_name = 'AWS'
   end # config.vm.provider 'aws'
 
   # Loop through YAML file and set per-instance information
