@@ -101,10 +101,32 @@ def main(arguments):
                 'IpRanges': [{'CidrIp': arguments.source_ips}]}]
         })
 
+    # Create the security group for standalone
+    create_security_group(
+        ec2=ec2,
+        name='selenium standalone SG',
+        description='The network security for the selenium standalone',
+        permissions={
+            'ingress': [
+               {'IpProtocol': 'tcp',
+                'ToPort': 22,
+                'FromPort': 22,
+                'IpRanges': [{'CidrIp': arguments.source_ips}]},
+               {'IpProtocol': 'tcp',
+                'ToPort': 4444,
+                'FromPort': 4444,
+                'IpRanges': [{'CidrIp': arguments.source_ips}]},
+               {'IpProtocol': 'tcp',
+                'ToPort': 5900,
+                'FromPort': 5900,
+                'IpRanges': [{'CidrIp': arguments.source_ips}]}]
+        })
+
     # Create VMs using vagrant
     v = vagrant.Vagrant(
         root=os.path.expanduser(arguments.vagrant_directory),
-        quiet_stdout=False)
+        quiet_stdout=False,
+        quiet_stderr=False)
     v.up()
 
     # Make AMI's out of the instances, then delete the instances

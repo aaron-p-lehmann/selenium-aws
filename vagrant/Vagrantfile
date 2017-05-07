@@ -15,6 +15,22 @@ ENV['VAGRANT_DEFAULT_PROVIDER'] = 'aws'
 
 # Create and configure the AWS instance(s)
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  # Function that sets up an aws VM
+  def aws_vm(instance, yaml)
+    # Disable default shared folder
+    instance.vm.synced_folder '.', '/vagrant', disabled: true
+  
+    # Set per-instance provider configuration/overrides
+    instance.vm.provider 'aws' do |aws, override|
+      override.ssh.private_key_path = yaml['keyfile']
+      override.ssh.username = yaml['user']
+      aws.instance_type = yaml['type']
+      aws.ami = yaml['ami']
+      aws.region = yaml['region']
+      aws.security_groups = yaml['security-groups']
+      aws.tags = {'Name': yaml['name']}
+    end # instance.vm.provider 'aws'
+  end
 
   # Use dummy AWS box
   config.vm.box = 'aws-dummy'
@@ -23,26 +39,38 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   config.vm.provider 'aws' do |aws|
 
     # Specify default AWS key pair
-    aws.keypair_name = 'AWS'
+    aws.keypair_name = 'Selenium'
   end # config.vm.provider 'aws'
 
-  # Loop through YAML file and set per-instance information
-  instances.each do |instance|
-    config.vm.define instance['name'] do |srv|
+  config.vm.define "node" do |node|
+    aws_vm(node, instances["node"])
+    config.vm.provision "file", source: "provision/get_selenium_url.py", destination: "get_selenium_url.py"
+    config.vm.provision "file", source: "configuration/selenium_node.conf", destination: "selenium_node.conf"
+    config.vm.provision "file", source: "configuration/xvfb.conf", destination: "xvfb.conf"
+    config.vm.provision "file", source: "configuration/x11vnc.conf", destination: "x11vnc.conf"
+    config.vm.provision "shell", path: "provision/move_files.sh"
+    config.vm.provision "shell", path: "provision/selenium.sh", args: ENV['HUB_SERVER']
+    config.vm.provision "shell", path: "provision/chrome.sh"
+    config.vm.provision "shell", path: "provision/xvfb.sh"
+  end
 
-      # Disable default shared folder
-      srv.vm.synced_folder '.', '/vagrant', disabled: true
+  config.vm.define "hub" do |hub|
+    aws_vm(hub, instances["hub"])
+    config.vm.provision "file", source: "provision/get_selenium_url.py", destination: "get_selenium_url.py"
+    config.vm.provision "file", source: "configuration/selenium_hub.conf", destination: "selenium_hub.conf"
+    config.vm.provision "shell", path: "provision/move_files.sh"
+    config.vm.provision "shell", path: "provision/selenium.sh"
+  end
 
-      # Set per-instance provider configuration/overrides
-      srv.vm.provider 'aws' do |aws, override|
-        override.ssh.private_key_path = instance['keyfile']
-        override.ssh.username = instance['user']
-        aws.instance_type = instance['type']
-        aws.ami = instance['ami']
-	aws.region = instance['region']
-        aws.security_groups = instance['security-groups']
-	aws.tags = {'Name': instance['name']}
-      end # srv.vm.provider 'aws'
-    end # config.vm.define
-  end # instances.each
+  config.vm.define "standalone" do |standalone|
+    aws_vm(standalone, instances["standalone"])
+    config.vm.provision "file", source: "provision/get_selenium_url.py", destination: "get_selenium_url.py"
+    config.vm.provision "file", source: "configuration/selenium_standalone.conf", destination: "selenium_standalone.conf"
+    config.vm.provision "file", source: "configuration/xvfb.conf", destination: "xvfb.conf"
+    config.vm.provision "file", source: "configuration/x11vnc.conf", destination: "x11vnc.conf"
+    config.vm.provision "shell", path: "provision/move_files.sh"
+    config.vm.provision "shell", path: "provision/selenium.sh"
+    config.vm.provision "shell", path: "provision/chrome.sh"
+    config.vm.provision "shell", path: "provision/xvfb.sh"
+  end
 end # Vagrant.configure
