@@ -6,7 +6,7 @@ require 'vagrant-aws'
 require 'yaml'
 
 # Read YAML file with instance information
-instances = YAML.load_file(File.join(File.dirname(__FILE__), 'instances.yml'))
+instances = YAML.load_file(File.join(File.dirname(__FILE__), 'instances.yml'))['vm information']
 
 # Specify Vagrant version and Vagrant API version
 Vagrant.require_version '>= 1.6.0'

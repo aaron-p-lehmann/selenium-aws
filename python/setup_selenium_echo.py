@@ -1,3 +1,6 @@
+# YAML
+import yaml
+
 # Boto
 import boto3
 from botocore.exceptions import ClientError
@@ -35,92 +38,56 @@ def parse_arguments():
         '--vagrant-directory',
         default=os.getcwd(),
         help='The directory where the Vagrantfile is')
+    parser.add_argument(
+        '--configuration',
+        default=os.path.join(os.getcwd(), 'instances.yml'),
+        help='The path to the configuration file')
     arguments = parser.parse_args()
 
     return arguments
 
-def create_security_group(ec2, name, description, permissions):
+def create_security_group(ec2, all_groups, config, name, description, permissions, group_id=None):
     try:
-        list(ec2.security_groups.filter(GroupNames=[name]).limit(1))
-    except Exception as e:
-        if e.response['Error']['Code'] == 'InvalidGroup.NotFound':
+        sg = next(iter(ec2.security_groups.filter(GroupNames=[name]).limit(1)))
+    except ClientError as ce:
+        if ce.response['Error']['Code'] == 'InvalidGroup.NotFound':
             # The group doesn't exist, so we can make it
             vpc_id = list(ec2.vpcs.limit(1))[0].id
 
-            ec2.create_security_group(
+            sg = ec2.create_security_group(
                 GroupName=name,
                 Description=description,
                 VpcId=vpc_id
-            ).authorize_ingress(
-                IpPermissions=permissions['ingress'])
+            )
+
+            # Go through the permissions and make sure that any sg id's are filled in
+            # This may result in new sgs being created
+            for rule in permissions['ingress']:
+                if rule.get('CidrIp', None) == 'current':
+                    rule['CidrIp'] = get_default_source_ip()
+                elif rule.get('SourceSecurityGroupName', None) in all_groups:
+                    # We're going to be using another security group as a valid connection source, make sure that group is created
+                    other_group = all_groups[rule['SourceSecurityGroupName']]
+                    create_security_group(ec2, all_groups, other_group, **other_group)
+                    rule['SourceSecurityGroupName'] = other_group['name']
+
+                sg.authorize_ingress(**rule)
         else:
             # There's a problem, but it's not that the group's not there
             raise
-    else:
-        # There already was a group by this name, so don't do anything
-        pass
     
 def main(arguments):
     ec2 = boto3.resource('ec2')
+    with open(arguments.configuration) as config_file:
+        config = yaml.load(config_file)
 
-    # Create the security group for hub
-    create_security_group(
-        ec2=ec2,
-        name='selenium hub SG',
-        description='The network security for the selenium hub',
-        permissions={
-            'ingress': [
-               {'IpProtocol': 'tcp',
-                'ToPort': 4444,
-                'FromPort': 4444,
-                'IpRanges': [{'CidrIp': arguments.source_ips}]},
-               {'IpProtocol': 'tcp',
-                'ToPort': 22,
-                'FromPort': 22,
-                'IpRanges': [{'CidrIp': arguments.source_ips}]}]
-        })
-
-    # Create the security group for node
-    create_security_group(
-        ec2=ec2,
-        name='selenium node SG',
-        description='The network security for the selenium node',
-        permissions={
-            'ingress': [
-               {'IpProtocol': 'tcp',
-                'ToPort': 22,
-                'FromPort': 22,
-                'IpRanges': [{'CidrIp': arguments.source_ips}]},
-               {'IpProtocol': 'tcp',
-                'ToPort': 5555,
-                'FromPort': 5555,
-                'IpRanges': [{'CidrIp': arguments.source_ips}]},
-               {'IpProtocol': 'tcp',
-                'ToPort': 5900,
-                'FromPort': 5900,
-                'IpRanges': [{'CidrIp': arguments.source_ips}]}]
-        })
-
-    # Create the security group for standalone
-    create_security_group(
-        ec2=ec2,
-        name='selenium standalone SG',
-        description='The network security for the selenium standalone',
-        permissions={
-            'ingress': [
-               {'IpProtocol': 'tcp',
-                'ToPort': 22,
-                'FromPort': 22,
-                'IpRanges': [{'CidrIp': arguments.source_ips}]},
-               {'IpProtocol': 'tcp',
-                'ToPort': 4444,
-                'FromPort': 4444,
-                'IpRanges': [{'CidrIp': arguments.source_ips}]},
-               {'IpProtocol': 'tcp',
-                'ToPort': 5900,
-                'FromPort': 5900,
-                'IpRanges': [{'CidrIp': arguments.source_ips}]}]
-        })
+    # Create the security groups
+    for typ, group_configuration in config['security groups'].items():
+        create_security_group(
+            ec2=ec2,
+            all_groups=config['security groups'],
+            config=group_configuration,
+            **group_configuration)
 
     # Create VMs using vagrant
     v = vagrant.Vagrant(
@@ -130,7 +97,7 @@ def main(arguments):
     v.up()
 
     # Make AMI's out of the instances, then delete the instances
-    for instance in ec2.instances.filter(Filters=[{'Name': 'image-id', 'Values': ['ami-41d48e24']}, {'Name': 'instance-state-name', 'Values': ['running']}]):
+    for instance in ec2.instances.filter(Filters=[{'Name': 'image-id', 'Values': list(set([info['ami'] for info in config['vm information'].values()]))}, {'Name': 'instance-state-name', 'Values': ['running']}]):
         img = instance.create_image(Name=next(tag['Value'] for tag in instance.tags if tag['Key'] == 'Name'))
         img.wait_until_exists(Filters=[{'Name': 'state', 'Values': ['available']}])
         instance.terminate()
